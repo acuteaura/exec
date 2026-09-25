@@ -52,7 +52,38 @@ in
   # created by systemd at runtime.
   fileSystems."/".device = "/dev/vda";
   fileSystems."/".fsType = "ext4";
-  fileSystems."/".options = [ "defaults" "x-systemd.growfs" ];
+
+  # Grow the root fs on first boot. On exe.dev the root is a real ext4 on
+  # /dev/vda and we want to grow it to fill the VM's (much larger) disk. We do
+  # NOT use the `x-systemd.growfs` fstab option because it generates a
+  # `systemd-growfs-root.service` and an activation snippet that writes to
+  # /etc/fstab — which fails on the read-only rootfs of an overlay (docker) and
+  # leaves the system degraded, with no ConditionFileSystem= available to guard
+  # it. Instead we run our own guarded oneshot that checks the fstype at
+  # runtime and only acts on ext4.
+  systemd.services.exe-growfs = {
+    description = "Grow root filesystem (ext4 only)";
+    after = [ "systemd-remount-fs.service" ];
+    before = [ "systemd-fsck-root.service" "local-fs.target" ];
+    wantedBy = [ "local-fs.target" ];
+    unitConfig.DefaultDependencies = false;
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "exe-growfs" ''
+        set -euo pipefail
+        fstype=$(findmnt -n -o FSTYPE / || true)
+        if [ "$fstype" = "ext4" ]; then
+          device=$(findmnt -n -o SOURCE /)
+          echo "Growing $device (ext4) mounted at /"
+          ${pkgs.e2fsprogs}/bin/resize2fs "$device" || true
+        else
+          fstype=''${fstype:-<none>}
+          echo "Root fstype is $fstype; skipping growfs"
+        fi
+      '';
+    };
+  };
 
   # ------------------------------------------------------------------
   # Users / shell
@@ -84,28 +115,26 @@ in
   networking.hostName = "exe-mcp";
   networking.useNetworkd = true;
 
-  # exe.dev microVMs get a single NIC (eth0) with DHCP. Configure networkd
-  # explicitly so it manages the link and network-online.target converges.
+  # exe.dev microVMs get a single NIC (eth0) with DHCP. Configure networkd so
+  # it manages the link.
   networking.useDHCP = false;
   systemd.network = {
     enable = true;
     networks."10-eth" = {
       matchConfig.Name = "eth0";
       DHCP = "yes";
-      # In docker (where eth0 is already configured by the engine), networkd
-      # leaves the link unmanaged and wait-online would hang. Don't block boot
-      # on a link that may already be up out-of-band.
-      linkConfig.RequiredForOnline = "no";
     };
   };
 
-  # Don't let network-online.target block the aggregator from starting if a
-  # link never reaches the configured state (e.g. in docker, or if the exe.dev
-  # proxy provisions networking host-side).
-  systemd.services.systemd-networkd-wait-online.serviceConfig.TimeoutStartSec =
-    lib.mkForce 10;
-  systemd.services.systemd-networkd-wait-online.environment.SYSTEMD_RELAX_ESP_CHECKS =
-    "yes";
+  # The aggregator only binds 0.0.0.0:80 — it does not need any link to be
+  # "online" to start serving. Disable the wait-online service entirely so it
+  # can never time out and leave the system in a degraded state. (networkd
+  # still configures the interface; this just stops network-online.target from
+  # gating services on link state.) This also covers the docker test case
+  # where the engine configures eth0 out-of-band and networkd leaves it
+  # unmanaged, making wait-online hang forever.
+  systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
+  systemd.targets.network-online.enable = lib.mkForce false;
 
   # Only expose the aggregator. SSH (if ever needed) is handled host-side by
   # exe.dev's proxy, not by a guest sshd.
@@ -185,8 +214,12 @@ in
 
   systemd.services.mcp-gateway = {
     description = "MCP Gateway aggregation server";
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
+    # No After=/Wants= on network-online.target: binding 0.0.0.0:80 works as
+    # soon as the socket layer is up, and stdio backends (context7) dial out
+    # lazily on first use and retry on their own. Waiting for "online" only
+    # coupled the service to link state (and to a wait-online unit that can
+    # time out).
+    after = [ "network.target" ];
     wantedBy = [ "multi-user.target" ];
 
     serviceConfig = {
@@ -221,12 +254,6 @@ in
   # No kernel or firmware in the image — the host owns the kernel.
   boot.kernelPackages = lib.mkForce pkgs.linuxPackages;
   boot.kernel.enable = false;
-
-  # First-boot housekeeping: grow the root fs to fill the VM disk. exe.dev
-  # gives the VM a block device larger than the image and expects the guest
-  # to grow the fs. We write the fstab entry declaratively (above) so this
-  # activation script is intentionally a no-op.
-  system.activationScripts.growfs = lib.mkForce "";
 
   system.stateVersion = "25.05";
 }
