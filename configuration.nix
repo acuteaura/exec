@@ -69,7 +69,7 @@ let
     # The token is resolved from the environment at load time.
     auth:
       enabled: true
-      bearer_token: "${MCP_GATEWAY_ADMIN_TOKEN}"
+      bearer_token: "''${MCP_GATEWAY_ADMIN_TOKEN}"
       single_user: true
       public_paths:
         - "/health"
