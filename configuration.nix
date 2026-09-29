@@ -22,7 +22,7 @@
 # symlink to the NixOS toplevel so exe.dev's exetini exec's systemd as PID 1.
 #
 # The image is consumed via:
-#   ssh exe.dev new --image=ghcr.io/acuteaura/exec:latest
+#   ssh exe.dev new --image=ghcr.io/acuteaura/exec/mcp:latest
 # exe.dev prefers EXPOSE port 80, so the aggregator listens there.
 
 { pkgs, config, lib, ... }:
@@ -45,7 +45,7 @@ let
   # control-plane store open cleanly.
   gatewayConfig = pkgs.writeText "gateway.yaml" ''
     # MCP Gateway configuration — baked into the image as a template.
-    # See https://github.com/MikkoParkkolan/mcp-gateway#readme
+    # See https://github.com/MikkoParkkola/mcp-gateway#readme
 
     server:
       host: "0.0.0.0"

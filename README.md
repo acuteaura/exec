@@ -2,7 +2,7 @@
 
 A NixOS-based OCI container image for [exe.dev](https://exe.dev) that runs an
 **MCP aggregation server** on port 80. Built with Nix + systemd, pushed to
-`ghcr.io/acuteaura/exec`.
+`ghcr.io/acuteaura/exec/mcp`.
 
 ## What's in it
 
@@ -40,7 +40,7 @@ full rationale.
 | `flake.nix` | Flake entry point: builds the NixOS config + OCI image. |
 | `configuration.nix` | The NixOS system config (systemd, networking, the aggregator service, baked gateway config). |
 | `image.nix` | Wraps the closure in an OCI image via `dockerTools.buildImage`, sets exe.dev labels, creates `/init`. |
-| `.github/workflows/build.yml` | CI: builds the image with Nix and pushes it to `ghcr.io/acuteaura/exec`. |
+| `.github/workflows/build.yml` | CI: builds the image with Nix and pushes it to `ghcr.io/acuteaura/exec/mcp`. |
 
 ## Build locally
 
@@ -52,18 +52,18 @@ nix build .#streamImage && ./result | docker load
 
 ## Run on exe.dev
 
-The GitHub workflow pushes to `ghcr.io/acuteaura/exec:latest` on every push
+The GitHub workflow pushes to `ghcr.io/acuteaura/exec/mcp:latest` on every push
 to `main`. To boot a VM from it:
 
 ```bash
-ssh exe.dev new --image=ghcr.io/acuteaura/exec:latest
+ssh exe.dev new --image=ghcr.io/acuteaura/exec/mcp:latest
 ```
 
 Because the image is published to ghcr.io, pass `--registry-auth` if the
 package is private:
 
 ```bash
-ssh exe.dev new --image=ghcr.io/acuteaura/exec:latest \
+ssh exe.dev new --image=ghcr.io/acuteaura/exec/mcp:latest \
     --registry-auth=<user>:<github-pat-with-read:packages>
 ```
 
@@ -81,12 +81,26 @@ Transport: streamable HTTP
 
 The `/mcp` tool endpoint is public (the VM is private by default — only
 users with access can reach it through exe.dev's proxy). The dashboard and
-management routes are guarded by an admin bearer token baked into
-`/etc/mcp-gateway/gateway.yaml`.
+management routes are guarded by an admin bearer token supplied via the
+`MCP_GATEWAY_ADMIN_TOKEN` environment variable (interpolated into the config
+at load time) — see `configuration.nix`.
+
+## Reconfiguring a running VM
+
+The flake exposes `nixosConfigurations.exe-mcp` (matching the VM's
+hostname), so you can rebuild and switch a running VM in place:
+
+```bash
+git clone https://github.com/acuteaura/exec.git && cd exec
+sudo nixos-rebuild switch --flake .#exe-mcp
+```
+
+Flakes are enabled in the image, and `nixos-rebuild` will pick up changes
+from the local checkout and activate them on the live system.
 
 ### Adding more backends
 
-Edit `/etc/mcp-gateway/gateway.yaml` on the running VM and restart the
+Edit `/var/lib/mcp-gateway/gateway.yaml` on the running VM and restart the
 service, or rebuild the image with a new entry under `backends:`:
 
 ```yaml
@@ -99,6 +113,12 @@ backends:
 
 ```bash
 sudo systemctl restart mcp-gateway
+```
+
+or, from this repo on the VM:
+
+```bash
+sudo nixos-rebuild switch --flake .#exe-mcp
 ```
 
 ## Configuration
