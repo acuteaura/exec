@@ -28,11 +28,58 @@
 { pkgs, config, lib, ... }:
 
 let
-  # An opaque admin token. For a single-user aggregator this just guards the
-  # dashboard / management API; the /mcp tool endpoint is public. Rotate by
-  # editing /etc/mcp-gateway/gateway.yaml on the running VM and restarting
-  # the service, or by rebuilding the image with a new value here.
-  adminToken = "mcpgw_exe_dev_change_me";
+  # The gateway config is a read-only Nix store template. mcp-gateway expands
+  # `${VAR}` references from the process environment at load time, so the
+  # admin bearer token is injected via the MCP_GATEWAY_ADMIN_TOKEN env var
+  # (set on the systemd unit) rather than baked into the closure — secrets
+  # never go into the Nix store. Rotate by changing the env var and
+  # restarting the service (or override /var/lib/mcp-gateway/gateway.yaml).
+  #
+  # The template is copied into the service's StateDirectory
+  # (/var/lib/mcp-gateway) at start. We do NOT serve it straight from /etc
+  # because mcp-gateway derives its control-plane store + audit-log directory
+  # from the config file's parent (../<stem>-control-plane). Under /etc that
+  # sibling is read-only, so the gateway logs a "control-plane audit log
+  # unavailable (Permission denied)" warning and disables governance
+  # mutations. Putting the config in the writable StateDirectory lets the
+  # control-plane store open cleanly.
+  gatewayConfig = pkgs.writeText "gateway.yaml" ''
+    # MCP Gateway configuration — baked into the image as a template.
+    # See https://github.com/MikkoParkkolan/mcp-gateway#readme
+
+    server:
+      host: "0.0.0.0"
+      port: 80
+      # exe.dev's HTTPS proxy authenticates external callers (the VM is
+      # private by default; only users with VM access can reach it). The
+      # gateway refuses to bind 0.0.0.0 with public tool paths unless we
+      # explicitly opt in here.
+      allow_unauthenticated_network_bind: true
+
+    # Meta-MCP: expose a compact tool surface (gateway_search_tools,
+    # gateway_invoke, …) that discovers backend tools on demand. This keeps
+    # prompt overhead low regardless of how many backends are connected.
+    meta_mcp:
+      enabled: true
+      cache_tools: true
+      cache_ttl: 300s
+
+    # Tool endpoints are public so MCP clients can call them without the
+    # admin token. The dashboard and management routes stay authenticated.
+    # The token is resolved from the environment at load time.
+    auth:
+      enabled: true
+      bearer_token: "${MCP_GATEWAY_ADMIN_TOKEN}"
+      single_user: true
+      public_paths:
+        - "/health"
+        - "/mcp"
+
+    backends:
+      context7:
+        command: "context7-mcp --transport stdio"
+        description: "Up-to-date, version-specific library docs (Context7)"
+  '';
 in
 {
   # ------------------------------------------------------------------
@@ -167,50 +214,10 @@ in
   # MCP aggregator service
   # ------------------------------------------------------------------
 
-  # The gateway configuration is baked into the image. context7 is wired as
-  # a stdio backend: the gateway spawns `context7-mcp --transport stdio` and
-  # multiplexes its tools behind a single /mcp endpoint (Meta-MCP mode).
-  #
   # context7 works without an API key (lower rate limits). Set
   # CONTEXT7_API_KEY at `ssh exe.dev new --env CONTEXT7_API_KEY=...` time to
-  # raise them.
-
-  environment.etc."mcp-gateway/gateway.yaml".text = ''
-    # MCP Gateway configuration — baked into the image.
-    # See https://github.com/MikkoParkkola/mcp-gateway#readme
-
-    server:
-      host: "0.0.0.0"
-      port: 80
-      # exe.dev's HTTPS proxy authenticates external callers (the VM is
-      # private by default; only users with VM access can reach it). The
-      # gateway refuses to bind 0.0.0.0 with public tool paths unless we
-      # explicitly opt in here.
-      allow_unauthenticated_network_bind: true
-
-    # Meta-MCP: expose a compact tool surface (gateway_search_tools,
-    # gateway_invoke, …) that discovers backend tools on demand. This keeps
-    # prompt overhead low regardless of how many backends are connected.
-    meta_mcp:
-      enabled: true
-      cache_tools: true
-      cache_ttl: 300s
-
-    # Tool endpoints are public so MCP clients can call them without the
-    # admin token. The dashboard and management routes stay authenticated.
-    auth:
-      enabled: true
-      bearer_token: "${adminToken}"
-      single_user: true
-      public_paths:
-        - "/health"
-        - "/mcp"
-
-    backends:
-      context7:
-        command: "context7-mcp --transport stdio"
-        description: "Up-to-date, version-specific library docs (Context7)"
-  '';
+  # raise them. The config itself is the `gatewayConfig` store path above,
+  # copied into /var/lib/mcp-gateway at service start.
 
   systemd.services.mcp-gateway = {
     description = "MCP Gateway aggregation server";
@@ -224,12 +231,22 @@ in
 
     serviceConfig = {
       Type = "exec";
-      ExecStart = "${pkgs.mcp-gateway}/bin/mcp-gateway serve --config /etc/mcp-gateway/gateway.yaml";
+      # Copy the baked config into the StateDirectory so the gateway's
+      # control-plane store/audit log (derived from this file's directory)
+      # land in a writable location.
+      StateDirectory = "mcp-gateway";
+      StateDirectoryMode = "0750";
+      ExecStartPre = "${pkgs.coreutils}/bin/install -m 0640 ${gatewayConfig} /var/lib/mcp-gateway/gateway.yaml";
+      ExecStart = "${pkgs.mcp-gateway}/bin/mcp-gateway serve --config /var/lib/mcp-gateway/gateway.yaml";
       Restart = "on-failure";
       RestartSec = 5;
       # context7 may be spawned; keep the PATH minimal but include the store.
+      # MCP_GATEWAY_ADMIN_TOKEN is the dashboard/management bearer token,
+      # interpolated into the config at load time. Override at boot with
+      # `ssh exe.dev new --env MCP_GATEWAY_ADMIN_TOKEN=... --image=...`.
       Environment = [
         "PATH=${lib.makeBinPath [ pkgs.context7-mcp pkgs.coreutils ]}"
+        "MCP_GATEWAY_ADMIN_TOKEN=mcpgw_exe_dev_change_me"
       ];
       # Run as an unprivileged user.
       User = "exedev";
@@ -238,6 +255,11 @@ in
       StandardOutput = "journal";
       StandardError = "journal";
       SyslogIdentifier = "mcp-gateway";
+      # The gateway binds 0.0.0.0:80; port 80 is a privileged port (<1024)
+      # and the process runs as non-root user exedev. Grant the ambient
+      # capability so binding succeeds without running as root.
+      AmbientCapabilities = [ "CAP_NET_BIND_SERVICE" ];
+      CapabilityBoundingSet = [ "CAP_NET_BIND_SERVICE" ];
     };
   };
 
@@ -254,6 +276,15 @@ in
   # No kernel or firmware in the image — the host owns the kernel.
   boot.kernelPackages = lib.mkForce pkgs.linuxPackages;
   boot.kernel.enable = false;
+
+  # ------------------------------------------------------------------
+  # Nix / flakes — enable on the running VM so `sudo nixos-rebuild switch
+  # --flake .#exe-mcp` works for live reconfiguration from this repo.
+  # ------------------------------------------------------------------
+  nix = {
+    package = pkgs.nixVersions.stable;
+    settings.experimental-features = [ "nix-command" "flakes" ];
+  };
 
   system.stateVersion = "25.05";
 }

@@ -10,7 +10,10 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # The GitHub repository namespace (e.g. acuteaura/exec). Individual image
+  # targets live under it as sub-images; this workflow builds the `mcp` target.
+  REPO_NAMESPACE: ${{ github.repository }}
+  IMAGE_TARGET: mcp
 
 jobs:
   build-and-push:
@@ -30,6 +33,9 @@ jobs:
       - name: Load the image into Docker
         run: docker load < image.tar.gz
 
+      - name: Inspect the loaded image tag
+        run: docker images acuteaura/exec-mcp
+
       - name: Log in to ghcr.io
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -41,20 +47,24 @@ jobs:
       - name: Tag the image
         if: github.event_name != 'pull_request'
         run: |
-          # Map the image to ghcr.io/<owner>/<repo>:latest and :sha.
-          REPO_LOWER="$(echo "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
-          docker tag acuteaura/exec:latest "$REGISTRY/$REPO_LOWER:latest"
-          docker tag acuteaura/exec:latest "$REGISTRY/$REPO_LOWER:sha-$(git rev-parse --short HEAD)"
+          # Map the local build to ghcr.io/<owner>/<repo>/<target>:<tag>.
+          # The `mcp` image target is distinct from any future images that will
+          # share this repository namespace.
+          NS_LOWER="$(echo "$REPO_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+          FULL="$REGISTRY/$NS_LOWER/$IMAGE_TARGET"
+          docker tag acuteaura/exec-mcp:latest "$FULL:latest"
+          docker tag acuteaura/exec-mcp:latest "$FULL:sha-$(git rev-parse --short HEAD)"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            docker tag acuteaura/exec:latest "$REGISTRY/$REPO_LOWER:${GITHUB_REF#refs/tags/}"
+            docker tag acuteaura/exec-mcp:latest "$FULL:${GITHUB_REF#refs/tags/}"
           fi
 
       - name: Push to ghcr.io
         if: github.event_name != 'pull_request'
         run: |
-          REPO_LOWER="$(echo "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
-          docker push "$REGISTRY/$REPO_LOWER:latest"
-          docker push "$REGISTRY/$REPO_LOWER:sha-$(git rev-parse --short HEAD)"
+          NS_LOWER="$(echo "$REPO_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+          FULL="$REGISTRY/$NS_LOWER/$IMAGE_TARGET"
+          docker push "$FULL:latest"
+          docker push "$FULL:sha-$(git rev-parse --short HEAD)"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            docker push "$REGISTRY/$REPO_LOWER:${GITHUB_REF#refs/tags/}"
+            docker push "$FULL:${GITHUB_REF#refs/tags/}"
           fi

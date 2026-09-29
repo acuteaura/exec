@@ -19,7 +19,10 @@ let
   image =
     pkgs.dockerTools.buildImage
       {
-        name = "acuteaura/exec";
+        # The repository will host multiple images eventually; the `mcp`
+        # suffix distinguishes this one (the MCP aggregation gateway) from
+        # any future target.
+        name = "acuteaura/exec-mcp";
         tag = "latest";
 
         # The closure and its runtime dependencies.

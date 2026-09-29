@@ -24,7 +24,10 @@
       };
     in
     {
-      # Used by `nix build .#container` / `nixos-rebuild` to inspect the config.
+      # The name `exe-mcp` matches the VM's hostname and the flake path used
+      # by `sudo nixos-rebuild switch --flake .#exe-mcp` on the running VM.
+      # `container` remains as an alias for the OCI image build path.
+      nixosConfigurations.exe-mcp = nixos;
       nixosConfigurations.container = nixos;
 
       packages.${system} = {
