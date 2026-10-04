@@ -286,5 +286,13 @@ in
     settings.experimental-features = [ "nix-command" "flakes" ];
   };
 
+  # exe.dev KVM microVMs restrict systemd's transient-unit creation, so
+  # `nixos-rebuild switch` fails with "Access denied" when it tries to run
+  # `switch-to-configuration` via `systemd-run`. Setting this env var makes
+  # nixos-rebuild call `switch-to-configuration` directly (it just updates
+  # the system profile symlinks and reloads units — no transient service
+  # needed), so `sudo nixos-rebuild switch --flake .#exe-mcp` works.
+  environment.variables.NIXOS_REBUILD_NO_SYSTEMD_RUN = "1";
+
   system.stateVersion = "25.05";
 }
