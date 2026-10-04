@@ -2,19 +2,42 @@
 
 # Build an OCI (Docker-compatible) image from a NixOS system closure.
 #
-# We use dockerTools.buildImage because it supports runAsRoot (we need to
-# create the /init symlink and a runtime directory skeleton). The resulting
-# tarball is loadable with `docker load` and pushable with `docker push`.
+# The image's / contains only:
+#   - /nix/store      the system closure
+#   - /nix/var/nix    a Nix database registering that closure, plus the
+#                     `system` profile pointing at the toplevel
+#   - /init           -> /nix/var/nix/profiles/system/init (what exe.dev's
+#                     exetini exec's as PID 1)
+#   - empty runtime dirs (/etc, /tmp, /var, ...)
 #
-# The image's /init is a symlink to the NixOS toplevel's init (systemd),
-# matching what exe.dev's exetini expects to exec as PID 1.
+# Notes on why it looks like this:
+#
+#   * The store paths MUST be registered in the Nix DB (includeNixDB). If
+#     they are not, Nix on the running VM considers them invalid and
+#     `nixos-rebuild` re-creates them in place — deleting and rewriting
+#     files that running services (e.g. dbus-broker's policy dirs) are
+#     watching. That left dbus-broker with a policy lacking systemd's rules,
+#     so every bus call to systemd was denied, root included.
+#
+#   * /etc is NOT pre-populated. NixOS activation builds /etc as symlinks
+#     into /etc/static; copying the toplevel's etc/ into / instead leaves real
+#     directories (e.g. /etc/dbus-1) that activation can never replace, so
+#     they go stale after the first switch.
+#
+#   * /init goes through the system profile so a `nixos-rebuild switch`
+#     (which updates the profile) also takes effect on the next boot.
 
 let
   inherit (nixos.config.system.build) toplevel;
 
-  # The store paths the image must contain: the system closure. buildImage
-  # copies these into the image root.
-  storePaths = [ toplevel ];
+  # Root skeleton. .toplevel only records the toplevel's path so it is in the
+  # closure that buildImage copies into /nix/store and registers in the DB;
+  # extraCommands removes it from / again. (A symlink would not work:
+  # copyToRoot dereferences symlinks and would copy the whole toplevel into /.)
+  root = pkgs.runCommand "exe-mcp-root" { } ''
+    mkdir -p $out
+    echo ${toplevel} > $out/.toplevel
+  '';
 
   image =
     pkgs.dockerTools.buildImage
@@ -25,8 +48,8 @@ let
         name = "acuteaura/exec-mcp";
         tag = "latest";
 
-        # The closure and its runtime dependencies.
-        copyToRoot = storePaths;
+        copyToRoot = root;
+        includeNixDB = true;
 
         # exe.dev reads these labels at VM creation time.
         # install-shelley=true makes exe.dev install a recent Shelley and the
@@ -43,21 +66,25 @@ let
           ];
         };
 
-        # Run after the store paths are laid down: create the /init symlink
-        # and the runtime directory skeleton the image needs.
-        runAsRoot = ''
-          ${pkgs.dockerTools.shadowSetup}
-          # /init -> the NixOS toplevel init (systemd).
-          ln -sf ${toplevel}/init /init
-          # Runtime directories systemd expects to exist.
-          mkdir -p /run /tmp /var/lib /etc
-          chmod 1777 /tmp
-          # /etc/machine-id must exist (empty => first boot) so systemd doesn't
-          # re-enable units we disabled.
-          : > /etc/machine-id
-          # Create the exedev user's home so the service WorkingDirectory exists.
-          mkdir -p /home/exedev
-          chown -R 1000:1000 /home/exedev
+        # Runs in the layer directory (paths are relative to /). No
+        # runAsRoot VM needed: NixOS activation creates users, /etc and the
+        # exedev home directory at boot.
+        extraCommands = ''
+          rm -f .toplevel
+
+          # System profile, as `nixos-rebuild` would create it.
+          mkdir -p nix/var/nix/profiles
+          ln -s ${toplevel} nix/var/nix/profiles/system-1-link
+          ln -s system-1-link nix/var/nix/profiles/system
+
+          ln -s /nix/var/nix/profiles/system/init init
+
+          mkdir -p etc run var/lib home root tmp
+          chmod 1777 tmp
+          chmod 0700 root
+          # Empty machine-id => systemd treats this as first boot and
+          # generates one.
+          : > etc/machine-id
         '';
       };
 

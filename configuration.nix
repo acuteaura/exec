@@ -12,8 +12,9 @@
 # choices are wrong or unnecessary:
 #
 #   - We want the firewall on (only port 80 needs to be open).
-#   - isContainer enables the Nix store path-registration oneshot, which is
-#     harmless but pointless for a read-only closure baked into the image.
+#   - Store path registration is handled at image build time instead
+#     (includeNixDB in image.nix), so Nix on the VM knows the closure is
+#     valid and `nixos-rebuild` doesn't rewrite live store paths.
 #   - The profile mounts /proc and /sys read-only in places; a microVM
 #     expects them writable (exeuntu's init-wrapper remounts /proc/sys rw).
 #
@@ -292,7 +293,14 @@ in
   # nixos-rebuild call `switch-to-configuration` directly (it just updates
   # the system profile symlinks and reloads units — no transient service
   # needed), so `sudo nixos-rebuild switch --flake .#exe-mcp` works.
+  #
+  # sudo resets the environment (env_reset), so without env_keep the variable
+  # would be stripped and `sudo nixos-rebuild switch` would still go through
+  # systemd-run. Keep it across sudo.
   environment.variables.NIXOS_REBUILD_NO_SYSTEMD_RUN = "1";
+  security.sudo.extraConfig = ''
+    Defaults env_keep += "NIXOS_REBUILD_NO_SYSTEMD_RUN"
+  '';
 
   system.stateVersion = "25.05";
 }

@@ -13,7 +13,7 @@ A NixOS-based OCI container image for [exe.dev](https://exe.dev) that runs an
   backends you add).
 - **`context7-mcp`** — wired as the first stdio backend, giving every client
   up-to-date, version-specific library documentation.
-- **systemd** as PID 1, via a `/init` symlink to the NixOS toplevel — exactly
+- **systemd** as PID 1, via a `/init` symlink to the NixOS system profile — exactly
   what exe.dev's exetini expects to exec.
 
 [gw]: https://github.com/MikkoParkkola/mcp-gateway
@@ -39,7 +39,7 @@ full rationale.
 |------|---------|
 | `flake.nix` | Flake entry point: builds the NixOS config + OCI image. |
 | `configuration.nix` | The NixOS system config (systemd, networking, the aggregator service, baked gateway config). |
-| `image.nix` | Wraps the closure in an OCI image via `dockerTools.buildImage`, sets exe.dev labels, creates `/init`. |
+| `image.nix` | Wraps the closure in an OCI image via `dockerTools.buildImage`, registers it in the Nix DB, sets exe.dev labels, creates `/init` and the system profile. |
 | `.github/workflows/build.yml` | CI: builds the image with Nix and pushes it to `ghcr.io/acuteaura/exec/mcp`. |
 
 ## Build locally
@@ -97,6 +97,26 @@ sudo nixos-rebuild switch --flake .#exe-mcp
 
 Flakes are enabled in the image, and `nixos-rebuild` will pick up changes
 from the local checkout and activate them on the live system.
+
+exe.dev VMs refuse systemd transient units, so `nixos-rebuild` must not wrap
+`switch-to-configuration` in `systemd-run` (otherwise it fails with
+`Failed to start transient service unit: Access denied`). The image sets
+`NIXOS_REBUILD_NO_SYSTEMD_RUN=1` and keeps it across `sudo`. On a VM booted
+from an older image that lacks this, pass it explicitly for the first switch:
+
+```bash
+sudo env NIXOS_REBUILD_NO_SYSTEMD_RUN=1 nixos-rebuild switch --flake .#exe-mcp
+```
+
+The variable comes from `/etc/profile`, so open a new login shell after
+switching before relying on the plain `sudo nixos-rebuild switch`.
+
+VMs created from images built before the Nix-DB fix in `image.nix` can't be
+switched reliably: their store paths are unregistered, so `nixos-rebuild`
+rewrites live paths (which can leave dbus-broker denying every call to
+systemd), and their `/etc` contains stale copied directories. Recreate those
+VMs from a current image. `scripts/debug-dbus.sh` collects diagnostics if
+switching fails.
 
 ### Adding more backends
 
