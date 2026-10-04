@@ -292,7 +292,14 @@ in
   # nixos-rebuild call `switch-to-configuration` directly (it just updates
   # the system profile symlinks and reloads units — no transient service
   # needed), so `sudo nixos-rebuild switch --flake .#exe-mcp` works.
+  #
+  # sudo resets the environment (env_reset), so without env_keep the variable
+  # would be stripped and `sudo nixos-rebuild switch` would still go through
+  # systemd-run. Keep it across sudo.
   environment.variables.NIXOS_REBUILD_NO_SYSTEMD_RUN = "1";
+  security.sudo.extraConfig = ''
+    Defaults env_keep += "NIXOS_REBUILD_NO_SYSTEMD_RUN"
+  '';
 
   system.stateVersion = "25.05";
 }

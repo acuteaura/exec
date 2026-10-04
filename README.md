@@ -98,6 +98,19 @@ sudo nixos-rebuild switch --flake .#exe-mcp
 Flakes are enabled in the image, and `nixos-rebuild` will pick up changes
 from the local checkout and activate them on the live system.
 
+exe.dev VMs refuse systemd transient units, so `nixos-rebuild` must not wrap
+`switch-to-configuration` in `systemd-run` (otherwise it fails with
+`Failed to start transient service unit: Access denied`). The image sets
+`NIXOS_REBUILD_NO_SYSTEMD_RUN=1` and keeps it across `sudo`. On a VM booted
+from an older image that lacks this, pass it explicitly for the first switch:
+
+```bash
+sudo env NIXOS_REBUILD_NO_SYSTEMD_RUN=1 nixos-rebuild switch --flake .#exe-mcp
+```
+
+The variable comes from `/etc/profile`, so open a new login shell after
+switching before relying on the plain `sudo nixos-rebuild switch`.
+
 ### Adding more backends
 
 Edit `/var/lib/mcp-gateway/gateway.yaml` on the running VM and restart the
