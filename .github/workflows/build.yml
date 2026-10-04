@@ -3,7 +3,6 @@ name: Build and push OCI image to ghcr.io
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -45,7 +44,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Tag the image
-        if: github.event_name != 'pull_request'
         run: |
           # Map the local build to ghcr.io/<owner>/<repo>/<target>:<tag>.
           # The `mcp` image target is distinct from any future images that will
@@ -53,18 +51,11 @@ jobs:
           NS_LOWER="$(echo "$REPO_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
           FULL="$REGISTRY/$NS_LOWER/$IMAGE_TARGET"
           docker tag acuteaura/exec-mcp:latest "$FULL:latest"
-          docker tag acuteaura/exec-mcp:latest "$FULL:sha-$(git rev-parse --short HEAD)"
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            docker tag acuteaura/exec-mcp:latest "$FULL:${GITHUB_REF#refs/tags/}"
-          fi
+          docker tag acuteaura/exec-mcp:latest "$FULL:$(git rev-parse HEAD)"
 
       - name: Push to ghcr.io
-        if: github.event_name != 'pull_request'
         run: |
           NS_LOWER="$(echo "$REPO_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
           FULL="$REGISTRY/$NS_LOWER/$IMAGE_TARGET"
           docker push "$FULL:latest"
-          docker push "$FULL:sha-$(git rev-parse --short HEAD)"
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            docker push "$FULL:${GITHUB_REF#refs/tags/}"
-          fi
+          docker push "$FULL:$(git rev-parse HEAD)"
