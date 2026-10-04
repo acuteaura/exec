@@ -13,7 +13,7 @@ A NixOS-based OCI container image for [exe.dev](https://exe.dev) that runs an
   backends you add).
 - **`context7-mcp`** — wired as the first stdio backend, giving every client
   up-to-date, version-specific library documentation.
-- **systemd** as PID 1, via a `/init` symlink to the NixOS system profile — exactly
+- **systemd** as PID 1, via a `/init` symlink to the NixOS toplevel (re-pointed on each switch) — exactly
   what exe.dev's exetini expects to exec.
 
 [gw]: https://github.com/MikkoParkkola/mcp-gateway
@@ -39,7 +39,7 @@ full rationale.
 |------|---------|
 | `flake.nix` | Flake entry point: builds the NixOS config + OCI image. |
 | `configuration.nix` | The NixOS system config (systemd, networking, the aggregator service, baked gateway config). |
-| `image.nix` | Wraps the closure in an OCI image via `dockerTools.buildImage`, registers it in the Nix DB, sets exe.dev labels, creates `/init` and the system profile. |
+| `image.nix` | Wraps the closure in an OCI image via `dockerTools.buildImage`, registers it in the Nix DB, sets exe.dev labels, creates `/init`, the system profile and the minimal `/etc` files exe-init needs. |
 | `.github/workflows/build.yml` | CI: builds the image with Nix and pushes it to `ghcr.io/acuteaura/exec/mcp`. |
 
 ## Build locally
