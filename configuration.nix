@@ -12,8 +12,9 @@
 # choices are wrong or unnecessary:
 #
 #   - We want the firewall on (only port 80 needs to be open).
-#   - isContainer enables the Nix store path-registration oneshot, which is
-#     harmless but pointless for a read-only closure baked into the image.
+#   - Store path registration is handled at image build time instead
+#     (includeNixDB in image.nix), so Nix on the VM knows the closure is
+#     valid and `nixos-rebuild` doesn't rewrite live store paths.
 #   - The profile mounts /proc and /sys read-only in places; a microVM
 #     expects them writable (exeuntu's init-wrapper remounts /proc/sys rw).
 #
