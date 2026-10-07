@@ -265,8 +265,10 @@ in
       Restart = "on-failure";
       RestartSec = 5;
       # context7 may be spawned; keep the PATH minimal but self-contained.
+      # Point at the symlinkJoin's bin/ so the gateway can resolve backend
+      # commands like `context7-mcp` by name.
       Environment = [
-        "PATH=${gatewayBin}"
+        "PATH=${gatewayBin}/bin"
       ];
       # MCP_GATEWAY_ADMIN_TOKEN is the dashboard/management bearer token,
       # interpolated into the config at load time. Load it from an env file
