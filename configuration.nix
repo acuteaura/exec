@@ -60,10 +60,19 @@ let
     # Meta-MCP: expose a compact tool surface (gateway_search_tools,
     # gateway_invoke, …) that discovers backend tools on demand. This keeps
     # prompt overhead low regardless of how many backends are connected.
+    # Only the discovery + invoke surface is exposed; the management
+    # tools (kill/revive server, reload config, routing profiles, etc.)
+    # are omitted since this is a personal portable gateway, not an
+    # operator console.
     meta_mcp:
       enabled: true
       cache_tools: true
       cache_ttl: 300s
+      exposed_meta_tools:
+        - gateway_list_servers
+        - gateway_list_tools
+        - gateway_search_tools
+        - gateway_invoke
 
     # Tool endpoints are public so MCP clients can call them without the
     # admin token. The dashboard and management routes stay authenticated.
