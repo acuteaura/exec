@@ -302,5 +302,15 @@ in
     Defaults env_keep += "NIXOS_REBUILD_NO_SYSTEMD_RUN"
   '';
 
+  # exe.dev boots whatever /init points at. The image points it at the
+  # toplevel it was built with; re-point it at the generation being activated
+  # so a `nixos-rebuild switch` survives reboot. (Not a bootloader: `nixos-rebuild
+  # boot` does not run activation and so does not update it.)
+  system.activationScripts.exeInit = ''
+    if [ -L /init ] || [ ! -e /init ]; then
+      ln -sfn "$systemConfig/init" /init.tmp && mv -T /init.tmp /init || true
+    fi
+  '';
+
   system.stateVersion = "25.05";
 }
