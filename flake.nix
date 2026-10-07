@@ -24,8 +24,10 @@
       };
     in
     {
-      # The name `exe-mcp` matches the VM's hostname and the flake path used
-      # by `sudo nixos-rebuild switch --flake .#exe-mcp` on the running VM.
+      # The flake attr `exe-mcp` is the build target for this image (the
+      # runtime hostname is set dynamically by exe.dev, not hardcoded — see
+      # networking.hostName in configuration.nix). Use it with:
+      #   sudo nixos-rebuild switch --flake .#exe-mcp
       # `container` remains as an alias for the OCI image build path.
       nixosConfigurations.exe-mcp = nixos;
       nixosConfigurations.container = nixos;

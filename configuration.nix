@@ -160,7 +160,12 @@ in
   # Networking
   # ------------------------------------------------------------------
 
-  networking.hostName = "exe-mcp";
+  # Leave the hostname empty so NixOS does not manage /etc/hostname. exe.dev
+  # passes the VM name on the kernel cmdline (ip=...:<hostname>:eth0:...) and
+  # exe-init writes it to /etc/hostname before systemd starts; with hostName
+  # unset NixOS leaves that file alone, so the gateway VM adopts whatever
+  # name exe.dev gave it at `ssh exe.dev new` time.
+  networking.hostName = "";
   networking.useNetworkd = true;
 
   # exe.dev microVMs get a single NIC (eth0) with DHCP. Configure networkd so
