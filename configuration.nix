@@ -81,6 +81,14 @@ let
         command: "context7-mcp --transport stdio"
         description: "Up-to-date, version-specific library docs (Context7)"
   '';
+
+  # A single store path whose bin/ contains everything the gateway and its
+  # spawned backends need. Cleaner than a lib.makeBinPath [...] string in
+  # the unit and keeps PATH to one element.
+  gatewayBin = pkgs.symlinkJoin {
+    name = "mcp-gateway-bin";
+    paths = [ pkgs.mcp-gateway pkgs.context7-mcp pkgs.coreutils pkgs.bash ];
+  };
 in
 {
   # ------------------------------------------------------------------
@@ -243,13 +251,13 @@ in
       # operator makes to the live file survive service restarts.
       StateDirectory = "mcp-gateway";
       StateDirectoryMode = "0750";
-      ExecStartPre = "${pkgs.bash}/bin/sh -c '${pkgs.coreutils}/bin/test -e /var/lib/mcp-gateway/gateway.yaml || ${pkgs.coreutils}/bin/install -m 0640 ${gatewayConfig} /var/lib/mcp-gateway/gateway.yaml'";
-      ExecStart = "${pkgs.mcp-gateway}/bin/mcp-gateway serve --config /var/lib/mcp-gateway/gateway.yaml";
+      ExecStartPre = "${gatewayBin}/bin/sh -c 'test -e /var/lib/mcp-gateway/gateway.yaml || install -m 0640 ${gatewayConfig} /var/lib/mcp-gateway/gateway.yaml'";
+      ExecStart = "${gatewayBin}/bin/mcp-gateway serve --config /var/lib/mcp-gateway/gateway.yaml";
       Restart = "on-failure";
       RestartSec = 5;
-      # context7 may be spawned; keep the PATH minimal but include the store.
+      # context7 may be spawned; keep the PATH minimal but self-contained.
       Environment = [
-        "PATH=${lib.makeBinPath [ pkgs.context7-mcp pkgs.coreutils ]}"
+        "PATH=${gatewayBin}"
       ];
       # MCP_GATEWAY_ADMIN_TOKEN is the dashboard/management bearer token,
       # interpolated into the config at load time. Load it from an env file
