@@ -239,10 +239,11 @@ in
       Type = "exec";
       # Copy the baked config into the StateDirectory so the gateway's
       # control-plane store/audit log (derived from this file's directory)
-      # land in a writable location.
+      # land in a writable location. Only seed on first boot so edits the
+      # operator makes to the live file survive service restarts.
       StateDirectory = "mcp-gateway";
       StateDirectoryMode = "0750";
-      ExecStartPre = "${pkgs.coreutils}/bin/install -m 0640 ${gatewayConfig} /var/lib/mcp-gateway/gateway.yaml";
+      ExecStartPre = "${pkgs.bash}/bin/sh -c '${pkgs.coreutils}/bin/test -e /var/lib/mcp-gateway/gateway.yaml || ${pkgs.coreutils}/bin/install -m 0640 ${gatewayConfig} /var/lib/mcp-gateway/gateway.yaml'";
       ExecStart = "${pkgs.mcp-gateway}/bin/mcp-gateway serve --config /var/lib/mcp-gateway/gateway.yaml";
       Restart = "on-failure";
       RestartSec = 5;
