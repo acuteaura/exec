@@ -222,6 +222,14 @@ in
     # the systemd unit can invoke them by absolute path without a shell PATH.
     mcp-gateway
     context7-mcp
+    # CLI wrapper that points mcp-gateway at the live config in the
+    # StateDirectory by default, so `mcp-gatewayctl` Just Works from a shell
+    # without remembering the --config flag.
+    (pkgs.writeShellScriptBin "mcp-gatewayctl" ''
+      exec ${pkgs.mcp-gateway}/bin/mcp-gateway \
+        --config "''${MCP_GATEWAY_CONFIG:-/var/lib/mcp-gateway/gateway.yaml}" \
+        "$@"
+    '')
   ];
 
   # ------------------------------------------------------------------
