@@ -248,13 +248,15 @@ in
       Restart = "on-failure";
       RestartSec = 5;
       # context7 may be spawned; keep the PATH minimal but include the store.
-      # MCP_GATEWAY_ADMIN_TOKEN is the dashboard/management bearer token,
-      # interpolated into the config at load time. Override at boot with
-      # `ssh exe.dev new --env MCP_GATEWAY_ADMIN_TOKEN=... --image=...`.
       Environment = [
         "PATH=${lib.makeBinPath [ pkgs.context7-mcp pkgs.coreutils ]}"
-        "MCP_GATEWAY_ADMIN_TOKEN=mcpgw_exe_dev_change_me"
       ];
+      # MCP_GATEWAY_ADMIN_TOKEN is the dashboard/management bearer token,
+      # interpolated into the config at load time. Load it from an env file
+      # if the operator created one (e.g. via `ssh exe.dev new --env ...
+      # --image=...` or by writing /var/lib/mcp-gateway/env` by hand) so
+      # the secret isn't baked into the unit.
+      EnvironmentFile = [ "-/var/lib/mcp-gateway/env" ];
       # Run as an unprivileged user.
       User = "exedev";
       Group = "users";
