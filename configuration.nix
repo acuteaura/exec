@@ -67,10 +67,11 @@ let
 
     # Tool endpoints are public so MCP clients can call them without the
     # admin token. The dashboard and management routes stay authenticated.
-    # The token is resolved from the environment at load time.
+    # The token is resolved from the env file (EnvironmentFile) at load
+    # time via mcp-gateway's `env:VAR_NAME` secret-reference syntax.
     auth:
       enabled: true
-      bearer_token: "''${MCP_GATEWAY_ADMIN_TOKEN}"
+      bearer_token: "env:MCP_GATEWAY_ADMIN_TOKEN"
       single_user: true
       public_paths:
         - "/health"
